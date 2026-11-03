@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#145c50">
+<meta name="description" content="在手机本地识别检验报告截图并核对后写入研究Excel">
+<link rel="manifest" href="manifest.webmanifest">
+<title>检验截图整理助手</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans SC",sans-serif;color:#182522;background:#f3f7f5}
+*{box-sizing:border-box}body{margin:0;padding:0 0 28px}
+header{background:#145c50;color:white;padding:22px 18px 18px}
+header h1{font-size:21px;margin:0 0 6px}header p{font-size:13px;margin:0;opacity:.9;line-height:1.55}
+main{max-width:760px;margin:auto;padding:14px}
+.card{background:white;border:1px solid #dce7e2;border-radius:15px;padding:15px;margin:0 0 13px;box-shadow:0 2px 8px #173c3010}
+h2{font-size:16px;margin:0 0 12px}.hint{font-size:12px;color:#5b6d66;line-height:1.6}
+label{display:block;font-size:13px;font-weight:650;margin:10px 0 6px}
+input,select,button{font:inherit}
+input[type=text],input[type=number],select{width:100%;padding:12px;border:1px solid #cbd9d3;border-radius:10px;background:#fff;font-size:16px}
+input[type=file]{width:100%;padding:10px 0;font-size:14px}
+button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:pointer}
+.primary{background:#145c50;color:white;width:100%;margin-top:10px}
+.secondary{background:#e7f1ed;color:#145c50}
+.danger{background:#fff0ed;color:#a33d2d}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.status{font-size:13px;margin-top:9px;white-space:pre-wrap;color:#245d50}
+.progress{height:7px;background:#e7efeb;border-radius:10px;overflow:hidden;margin-top:8px}.bar{height:100%;width:0;background:#16866e;transition:width .2s}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 5px;border-bottom:1px solid #e7eeea;text-align:left;vertical-align:middle}
+th{font-size:12px;color:#607169}
+td input{width:100%;min-width:76px;padding:8px;border:1px solid #d4dfda;border-radius:7px;font-size:14px}
+.badge{display:inline-block;border-radius:20px;padding:3px 8px;background:#fff1d8;color:#865b12;font-size:11px}
+.ok{background:#e1f3e9;color:#1b6b48}
+.item{padding:9px 0;border-bottom:1px solid #edf1ef}
+.item:last-child{border:0}
+.small{font-size:11px;color:#718078}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.actions button{flex:1}
+#resultsWrap{overflow-x:auto}
+footer{max-width:760px;margin:auto;padding:0 16px;color:#66766f;font-size:11px;line-height:1.6}
+@media(max-width:430px){.row{grid-template-columns:1fr}header{padding-top:18px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>检验截图整理助手</h1>
+  <p>手机端 · 本地OCR识别 · 人工核对后写入Excel<br>截图和工作簿在当前浏览器内处理，不上传到本工具服务器。</p>
+</header>
+<main>
+<section class="card">
+  <h2>① 导入研究Excel</h2>
+  <label for="book">选择你的研究表格（.xls / .xlsx）</label>
+  <input id="book" type="file" accept=".xls,.xlsx">
+  <div id="bookInfo" class="hint">请使用原始研究表格副本。建议先备份，不要直接覆盖唯一原件。</div>
+</section>
+
+<section class="card">
+  <h2>② 选择患者与目标行</h2>
+  <div class="row">
+    <div><label for="studyId">研究编号（仅作本次标签）</label><input id="studyId" type="text" placeholder="例如 107"></div>
+    <div><label for="targetRow">Excel数据行号</label><input id="targetRow" type="number" min="3" step="1" placeholder="例如 3"></div>
+  </div>
+  <p class="hint">表格第2行为字段标题，数据通常从第3行开始。这里填写Excel左侧显示的实际行号。请确认该行确实对应当前患者；本工具不会读取或显示姓名、病案号来替你判断。</p>
+</section>
+
+<section class="card">
+  <h2>③ 添加检验报告截图</h2>
+  <label for="images">一次选择一位患者的多张截图</label>
+  <input id="images" type="file" accept="image/*" multiple>
+  <p class="hint">建议截图清晰、尽量完整显示项目名称与结果；同一患者同一批次处理。请先遮盖姓名、病案号、身份证号、条码和二维码。不要上传未经授权的患者资料。</p>
+  <button class="primary" id="runOCR" disabled>开始识别截图</button>
+  <div class="progress"><div class="bar" id="bar"></div></div>
+  <div class="status" id="ocrStatus"></div>
+</section>
+
+<section class="card" id="reviewCard" hidden>
+  <h2>④ 核对识别结果</h2>
+  <p class="hint">所有数值都是OCR候选值，不是已验证结果。请逐项对照原报告修改；重复项目不会自动选第一次、最高值或最低值。</p>
+  <div id="resultsWrap"><table><thead><tr><th>研究表字段</th><th>识别候选值</th><th>状态/操作</th></tr></thead><tbody id="results"></tbody></table></div>
+  <div class="actions">
+    <button class="secondary" id="addManual">添加/修改指标</button>
+    <button class="primary" id="writeExcel" disabled>核对完成，写入Excel</button>
+  </div>
+  <div class="status" id="writeStatus"></div>
+</section>
+
+<section class="card">
+  <h2>使用边界</h2>
+  <ul class="hint" style="padding-left:18px;margin-bottom:0">
+    <li>OCR可能把小数点、负号、单位或项目名称识别错，必须人工核对。</li>
+    <li>同一指标出现多次时，本工具标记重复并留待你确认，不自行决定取值时间。</li>
+    <li>当前版本主要做截图候选识别和写表，不替代研究方案中的取值规则。</li>
+    <li>首次使用需联网加载识别组件；OCR及Excel处理在浏览器端进行。请在可信设备使用，并关闭公共设备上的页面。</li>
+  </ul>
+</section>
+</main>
+<footer>提示：将网页部署到支持HTTPS的静态网站后，可在手机浏览器菜单中选择“添加到主屏幕”。部署只需放置本工具文件，不要把患者Excel或截图上传到网站托管空间。</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let workbook=null, sheetName=null, candidates=[], ocrLines=[], worker=null, selectedFiles=[];
+const fieldAliases = [
+["IL-6",["il-6","白介素6","白细胞介素6","白介素-6"]],
+["PCT/ng/L",["pct","降钙素原","降钙素原测定"]],
+["CRP mg/L",["crp","c反应蛋白","c-反应蛋白"]],
+["WBC/10*9/L",["wbc","白细胞计数","白细胞"]],
+["Neut%",["neut%","中性粒细胞百分比","中性粒细胞%","中性粒细胞比率"]],
+["Lymph%",["lymph%","淋巴细胞百分比","淋巴细胞%","淋巴细胞比率"]],
+["Mono%",["mono%","单核细胞百分比","单核细胞%"]],
+["Eos/%",["eos%","嗜酸性粒细胞百分比","嗜酸性粒细胞%"]],
+["Baso%",["baso%","嗜碱性粒细胞百分比","嗜碱性粒细胞%"]],
+["Neut#/10*9/L",["neut#","中性粒细胞绝对值","中性粒细胞计数"]],
+["Lymph#/10*9/L",["lymph#","淋巴细胞绝对值","淋巴细胞计数"]],
+["Mono#/10*9/L",["mono#","单核细胞绝对值","单核细胞计数"]],
+["Eos#/10*9/L",["eos#","嗜酸性粒细胞绝对值","嗜酸性粒细胞计数"]],
+["Baso#/10*9/L",["baso#","嗜碱性粒细胞绝对值","嗜碱性粒细胞计数"]],
+["RBC/10*12/L",["rbc","红细胞计数","红细胞"]],
+["Hb/g/L",["hb","血红蛋白","血红蛋白浓度"]],
+["PLT/10*9/L",["plt","血小板计数","血小板"]],
+["TP/g/L",["tp","总蛋白"]],
+["ALB/g/L",["alb","白蛋白","白蛋白浓度"]],
+["GLB/g/L",["glb","球蛋白"]],
+["A/G",["a/g","白球比"]],
+["ALT/U/L",["alt","丙氨酸氨基转移酶","谷丙转氨酶"]],
+["AST/U/L",["ast","天门冬氨酸氨基转移酶","谷草转氨酶"]],
+["TBLL/umol/L",["tbil","总胆红素"]],
+["DBIL/umol/L",["dbil","直接胆红素"]],
+["IBIL/umol/L",["ibil","间接胆红素"]],
+["ALP/U/L",["alp","碱性磷酸酶"]],
+["GGT/U/L",["ggt","γ-谷氨酰转移酶","谷氨酰转移酶"]],
+["CHO/mmol/L",["cho","总胆固醇"]],
+["TG/mmol/L",["tg","甘油三酯"]],
+["LD/U/L",["ld","乳酸脱氢酶"]],
+["BUN/mmol/L",["bun","尿素氮","尿素"]],
+["Crea/umol/L",["crea","肌酐","肌酸酐"]],
+["UA/umol/L",["ua","尿酸"]],
+["CK/U/L",["ck","肌酸激酶"]],
+["CKMB/U/L",["ck-mb","ckmb","肌酸激酶同工酶"]],
+["LDH/U/L",["ldh","乳酸脱氢酶"]],
+["a-HBDH/U/L",["α-hbdh","a-hbdh","α羟丁酸脱氢酶"]],
+["m-AST/U/L",["m-ast","线粒体ast"]],
+["hs-cTnI/ng/ml",["hs-ctni","高敏肌钙蛋白i","肌钙蛋白i"]],
+["Myb/ng/ml",["myb","肌红蛋白"]],
+["hs-CRP/mg/L",["hs-crp","超敏c反应蛋白"]],
+["ntproBNP/pg/ml",["nt-probnp","ntprobnp","n端脑钠肽前体"]],
+["BNP/ng/L",["bnp","脑钠肽"]],
+["PT-S/s",["pt-s","凝血酶原时间"]],
+["PT-INR",["pt-inr","inr"]],
+["PT-%",["pt-%","凝血酶原活动度"]],
+["TT/s",["tt","凝血酶时间"]],
+["APTT/s",["aptt","活化部分凝血活酶时间"]],
+["FIB/g/L",["fib","纤维蛋白原"]],
+["FDP/ug/ml",["fdp","纤维蛋白降解产物"]],
+["D-Dimer/ug/ml",["d-dimer","d二聚体","d-二聚体"]],
+["AT-III",["at-iii","抗凝血酶iii","抗凝血酶Ⅲ"]],
+["Pro-GRP/pg/ml",["pro-grp","progrp"]],
+["SCC/ng/L",["scc","鳞状细胞癌相关抗原"]],
+["CEA/ng/ml",["cea","癌胚抗原"]],
+["NSE/ng/ml",["nse","神经元特异性烯醇化酶"]],
+["CYFRA21-1/ng/ml",["cyfra21-1","cyfra21","细胞角蛋白19片段"]],
+["PH",["ph","酸碱度"]],
+["PCO2(mmHg)",["pco2","二氧化碳分压"]],
+["PO2(mmHg)",["po2","氧分压"]],
+["Lac(mmol/L)",["lac","乳酸"]],
+["HCO3-(mmol/L)",["hco3-","碳酸氢根"]],
+["HCO3std(mmol/L)",["hco3std","标准碳酸氢根"]],
+["BE(B)(mmol/L)",["be(b)","be-b","剩余碱"]],
+["SO2c(%)",["so2c","氧饱和度","血氧饱和度"]]
+];
+function norm(s){return String(s||"").toLowerCase().replace(/\s/g,"").replace(/[：:]/g,"").replace(/[（）()]/g,"");}
+function setStatus(t){$("ocrStatus").textContent=t;}
+$("book").addEventListener("change",async e=>{
+ const f=e.target.files[0]; if(!f)return;
+ try{const data=await f.arrayBuffer();workbook=XLSX.read(data,{type:"array",cellDates:true});sheetName=workbook.SheetNames[0];const ws=workbook.Sheets[sheetName];$("bookInfo").textContent=`已读取：${f.name}；工作表：${sheetName}。请核对数据行号。`; }
+ catch(err){$("bookInfo").textContent="读取失败："+err.message;}
+});
+$("images").addEventListener("change",e=>{selectedFiles=[...e.target.files];$("runOCR").disabled=!selectedFiles.length;setStatus(`已选择 ${selectedFiles.length} 张图片。`);});
+function numericTokens(s){return (s.match(/[-+]?\d+(?:[.,]\d+)?/g)||[]).map(x=>x.replace(",", "."));}
+function matchLine(line){
+ const n=norm(line);
+ let hits=[];
+ for(const [field,aliases] of fieldAliases){
+   for(const a of aliases){const aa=norm(a); if(aa && n.includes(aa)){hits.push(field);break;}}
+ }
+ if(!hits.length)return null;
+ const nums=numericTokens(line);
+ if(!nums.length)return {field:hits[0],value:"",line,issue:"未找到数值"};
+ // 保守策略：整行数值可能含结果、参考范围、序号，不能自动确认。
+ return {field:hits[0],value:nums[0],line,issue:nums.length>1?"行内存在多个数字，请核对结果列":"待核对"};
+}
+async function run(){
+ if(!workbook){setStatus("请先导入研究Excel。");return;}
+ if(!selectedFiles.length){setStatus("请先选择截图。");return;}
+ if(!$("studyId").value.trim()||!$("targetRow").value){setStatus("请填写研究编号和Excel目标行号。");return;}
+ const target=Number($("targetRow").value);
+ if(!Number.isInteger(target)||target<3){setStatus("目标行号应为第3行或之后的实际行号。");return;}
+ $("runOCR").disabled=true;$("bar").style.width="0%";candidates=[];ocrLines=[];
+ try{
+  setStatus("正在加载中文识别组件…");
+  worker=await Tesseract.createWorker("chi_sim+eng",1,{logger:m=>{if(m.status==="recognizing text"){$("bar").style.width=Math.round(m.progress*100)+"%";}}});
+  for(let i=0;i<selectedFiles.length;i++){
+    setStatus(`正在识别第 ${i+1}/${selectedFiles.length} 张截图…`);
+    const result=await worker.recognize(selectedFiles[i]);
+    const lines=(result.data.text||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    ocrLines.push(...lines.map(x=>`[${selectedFiles[i].name}] ${x}`));
+    for(const line of lines){const hit=matchLine(line);if(hit)candidates.push(hit);}
+  }
+  await worker.terminate();worker=null;
+  renderCandidates();$("reviewCard").hidden=false;$("writeExcel").disabled=candidates.length===0;
+  setStatus(`识别完成：共得到 ${candidates.length} 条候选项目。请逐项核对；未匹配到的指标可手动添加。`);
+ }catch(err){if(worker){try{await worker.terminate()}catch(e){}worker=null;}setStatus("识别失败："+err.message+"\n请确认网络可用、浏览器允许加载识别组件。");}
+ finally{$("runOCR").disabled=false;}
+}
+function renderCandidates(){
+ const body=$("results");body.innerHTML="";
+ candidates.forEach((c,i)=>{
+  const tr=document.createElement("tr");
+  const dup=candidates.filter(x=>x.field===c.field).length>1;
+  tr.innerHTML=`<td>${c.field}<div class="small">${escapeHtml(c.line||"手动添加")}</div></td><td><input data-i="${i}" value="${escapeHtml(c.value)}" inputmode="decimal"></td><td>${dup?'<span class="badge">重复，需选定</span>':`<span class="badge">${c.issue||"待核对"}</span>`}<br><button class="danger" style="padding:5px 8px;margin-top:5px;font-size:11px" data-remove="${i}">移除此条</button></td>`;
+  body.appendChild(tr);
+ });
+ body.querySelectorAll("button[data-remove]").forEach(btn=>btn.onclick=()=>{candidates.splice(Number(btn.dataset.remove),1);renderCandidates();$("writeExcel").disabled=candidates.length===0;});
+}
+function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+$("addManual").onclick=()=>{
+ const name=prompt("请输入研究表格中的指标字段名（需与第41～106列标题一致）：");
+ if(!name)return;
+ const ws=workbook?.Sheets[sheetName];const headers=ws?Array.from({length:ws["!ref"]?XLSX.utils.decode_range(ws["!ref"]).e.c+1:0},(_,i)=>ws[XLSX.utils.encode_cell({r:1,c:i})]?.v):[];
+ if(!headers.includes(name)){alert("未在Excel第2行标题中找到该字段，请检查名称。");return;}
+ const val=prompt("请输入核对后的数值：");if(val===null)return;
+ candidates.push({field:name,value:val,line:"手动添加",issue:"手动输入"});
+ renderCandidates();$("writeExcel").disabled=false;
+};
+$("writeExcel").onclick=()=>{
+ if(!workbook){alert("请先导入Excel");return;}
+ const ws=workbook.Sheets[sheetName], row=Number($("targetRow").value)-1;
+ const range=XLSX.utils.decode_range(ws["!ref"]||"A1");
+ const headers=[];
+ for(let c=0;c<=range.e.c;c++)headers.push(ws[XLSX.utils.encode_cell({r:1,c})]?.v);
+ const inputs=[...$("results").querySelectorAll("input[data-i]")];
+ inputs.forEach(el=>{candidates[Number(el.dataset.i)].value=el.value.trim();});
+ const groups={};candidates.forEach(c=>(groups[c.field]??=[]).push(c.value));
+ const duplicateFields=Object.entries(groups).filter(([k,v])=>v.length>1);
+ if(duplicateFields.length){const msg=duplicateFields.map(([k,v])=>`${k}: ${v.join(" / ")}`).join("\n");if(!confirm("以下指标存在重复结果。程序不会自动选择其中任何一条。请先按研究方案核对原报告，使用“移除此条”删除不应采用的候选项，直到每个字段只剩一条，再写入Excel。\n\n"+msg))return;}
+ let wrote=0,missing=[];
+ for(const [field,vals] of Object.entries(groups)){
+   if(vals.length!==1){missing.push(field);continue;}
+   const col=headers.indexOf(field);
+   if(col<0){missing.push(field);continue;}
+   const addr=XLSX.utils.encode_cell({r:row,c:col});
+   ws[addr]={t:"s",v:vals[0]};wrote++;
+ }
+ if(!ws["!ref"]||row>range.e.r)ws["!ref"]=XLSX.utils.encode_range({s:range.s,e:{r:Math.max(row,range.e.r),c:range.e.c}});
+ const safeId=$("studyId").value.trim().replace(/[^\w-]/g,"_");
+ const out=`重症肺炎研究表_更新_${safeId}.xlsx`;
+ XLSX.writeFile(workbook,out);
+ $("writeStatus").textContent=`已生成文件：${out}。写入 ${wrote} 个指标。${missing.length?`未写入（重复或未匹配）：${missing.join("、")}`:""} 请重新打开文件检查保存结果。`;
+};
+$("runOCR").onclick=run;
+if("serviceWorker" in navigator && location.protocol.startsWith("http")){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));}
+</script>
+</body>
+</html>
